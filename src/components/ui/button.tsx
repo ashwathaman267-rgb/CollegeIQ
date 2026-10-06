@@ -41,26 +41,37 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function 
   { className, variant = 'secondary', size = 'md', loading = false, disabled, asChild, children, ...props },
   ref,
 ) {
-  const Comp = asChild ? Slot : 'button';
+  const classes = cn(
+    'inline-flex items-center justify-center font-medium whitespace-nowrap transition-all duration-150',
+    'disabled:pointer-events-none disabled:opacity-55',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/45 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas',
+    'active:translate-y-px',
+    VARIANT[variant],
+    SIZE[size],
+    className,
+  );
+
+  // Slot requires exactly one React element child, so the asChild path must
+  // not render the spinner as a sibling — keep the two paths separate.
+  if (asChild) {
+    return (
+      <Slot ref={ref} className={classes} {...props}>
+        {children}
+      </Slot>
+    );
+  }
+
   return (
-    <Comp
+    <button
       ref={ref}
-      className={cn(
-        'inline-flex items-center justify-center font-medium whitespace-nowrap transition-all duration-150',
-        'disabled:pointer-events-none disabled:opacity-55',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/45 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas',
-        'active:translate-y-px',
-        VARIANT[variant],
-        SIZE[size],
-        className,
-      )}
-      disabled={asChild ? undefined : disabled || loading}
+      className={classes}
+      disabled={disabled || loading}
       aria-busy={loading || undefined}
       {...props}
     >
-      {loading && !asChild ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+      {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
       {children}
-    </Comp>
+    </button>
   );
 });
 
