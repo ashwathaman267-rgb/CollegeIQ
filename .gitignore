@@ -1,0 +1,33 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# next.js
+.next/
+out/
+build/
+dist/
+
+# production
+*.tsbuildinfo
+next-env.d.ts
+
+# env & secrets
+.env
+.env.local
+.env.*.local
+
+# local runtime data (embedded postgres, uploads, logs)
+.data/
+uploads/
+*.log
+pgdata/
+
+# misc
+.DS_Store
+.vercel
+.turbo
+coverage/
+.idea/
+.vscode/

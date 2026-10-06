@@ -1,0 +1,1081 @@
+// CampusIQ — Prisma schema
+// Intelligent Campus Management Platform
+// PostgreSQL + Prisma ORM
+
+generator client {
+  provider   = "prisma-client-js"
+  // Rust-free query compiler — pairs with the `pg` driver adapter (see prisma.config.ts)
+  engineType = "client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────────────────────
+
+enum Role {
+  STUDENT
+  FACULTY
+  ADMIN
+}
+
+enum AccountStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  GRADUATED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  UNSPECIFIED
+}
+
+enum SubjectType {
+  THEORY
+  LABORATORY
+  ELECTIVE
+  PROJECT
+  SEMINAR
+}
+
+enum RoomType {
+  CLASSROOM
+  LABORATORY
+  AUDITORIUM
+  SEMINAR_HALL
+}
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  EXCUSED
+}
+
+enum SessionStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+enum ResultStatus {
+  PASS
+  FAIL
+  ARREAR
+  CLEARED
+  ABSENT
+}
+
+enum StudentResultStatus {
+  PASS
+  PASS_WITH_ARREARS
+  FAIL
+  PENDING
+}
+
+enum ArrearStatus {
+  OPEN
+  CLEARED
+}
+
+enum TimetableStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum ConstraintType {
+  FACULTY_CONFLICT
+  ROOM_CONFLICT
+  LABORATORY_CONFLICT
+  WEEKLY_REQUIREMENT
+  BREAK_PROTECTION
+  DISTRIBUTION
+  MAX_CONSECUTIVE
+  LAB_CONTIGUOUS
+  AVAILABILITY
+  CUSTOM
+}
+
+enum ConstraintSeverity {
+  HARD
+  SOFT
+}
+
+enum NotificationType {
+  ATTENDANCE_ALERT
+  RESULT_PUBLISHED
+  TIMETABLE_UPDATED
+  CAREER_INSIGHT
+  ACADEMIC
+  SYSTEM
+}
+
+enum FileKind {
+  RESUME
+  JOB_DESCRIPTION
+  RESULT_SHEET
+  MARKS_SHEET
+  AVATAR
+  OTHER
+}
+
+enum SkillCategory {
+  PROGRAMMING_LANGUAGE
+  FRAMEWORK
+  LIBRARY
+  TOOL
+  DATABASE
+  CLOUD
+  PLATFORM
+  DOMAIN
+  SOFT_SKILL
+  CERTIFICATION
+}
+
+enum AnalysisProvider {
+  MOCK
+  GEMINI
+  OPENAI
+  CUSTOM
+}
+
+enum JobType {
+  FULL_TIME
+  PART_TIME
+  INTERNSHIP
+  CONTRACT
+  REMOTE
+  ON_SITE
+  HYBRID
+}
+
+enum MatchVerdict {
+  EXCELLENT
+  STRONG
+  MODERATE
+  WEAK
+  POOR
+}
+
+// ─────────────────────────────────────────────────────────────
+// Identity & access
+// ─────────────────────────────────────────────────────────────
+
+model User {
+  id               String         @id @default(cuid())
+  email            String         @unique
+  passwordHash     String
+  role             Role           @default(STUDENT)
+  firstName        String
+  lastName         String
+  phone            String?
+  avatarUrl        String?
+  status           AccountStatus  @default(ACTIVE)
+  emailVerifiedAt  DateTime?
+  lastLoginAt      DateTime?
+  themePreference  String         @default("system")
+  failedLoginCount Int            @default(0)
+  lockedUntil      DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  deletedAt        DateTime?
+
+  student       Student?
+  faculty       Faculty?
+  sessions      Session[]
+  passwordReset PasswordResetToken[]
+  notifications Notification[]
+  auditLogs     AuditLog[]
+  settingsChanged SystemSetting[]  @relation("SettingUpdatedBy")
+  files         FileAsset[]
+
+  @@index([role, status])
+  @@map("users")
+}
+
+model Session {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  userAgent  String?
+  ipAddress  String?
+  expiresAt  DateTime
+  lastUsedAt DateTime  @default(now())
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Academic structure
+// ─────────────────────────────────────────────────────────────
+
+model Department {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  code        String   @unique
+  description String?
+  building    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+
+  headOfDepartmentId String?
+  headOfDepartment   Faculty? @relation("DepartmentHead", fields: [headOfDepartmentId], references: [id])
+
+  faculty            Faculty[]
+  students           Student[]
+  subjects           Subject[]
+  classes            Class[]
+  rooms              Room[]
+  laboratories       Laboratory[]
+  universityResults  UniversityResult[]
+  academicPrograms   AcademicYear[]
+
+  @@map("departments")
+}
+
+model AcademicYear {
+  id          String   @id @default(cuid())
+  name        String   @unique // e.g. "2025-2026"
+  startDate   DateTime
+  endDate     DateTime
+  isCurrent   Boolean  @default(false)
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id])
+
+  classes         Class[]
+  enrollments     Enrollment[]
+  timetables      Timetable[]
+  universityResults UniversityResult[]
+
+  @@index([isCurrent])
+  @@map("academic_years")
+}
+
+model Class {
+  id          String   @id @default(cuid())
+  name        String // e.g. "CSE · Year 3 · Section A"
+  yearOfStudy Int // 2, 3, 4 …
+  section     String // "A", "B"
+  semester    Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+
+  departmentId  String
+  department    Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  academicYearId String
+  academicYear  AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+
+  classSubjects       ClassSubject[]
+  students            Student[]
+  attendanceSessions  AttendanceSession[]
+  iaExams             IAExam[]
+  timetableSlots      TimetableSlot[]
+  timetables          Timetable[]
+  enrollments         Enrollment[]
+
+  @@unique([departmentId, academicYearId, yearOfStudy, section])
+  @@index([academicYearId])
+  @@map("classes")
+}
+
+model Subject {
+  id           String      @id @default(cuid())
+  code         String      @unique // e.g. "CS501"
+  name         String // e.g. "Computer Networks"
+  shortName    String?
+  description  String?
+  subjectType  SubjectType @default(THEORY)
+  semester     Int         @default(1)
+  credits      Float       @default(3)
+  weeklyPeriods Int        @default(4) // required periods per week
+  periodsPerSession Int    @default(1) // 2 for labs (contiguous)
+  maxIaMarks   Int         @default(50)
+  maxTheoryMarks Int       @default(100)
+  passMarks    Int         @default(50)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  deletedAt    DateTime?
+
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  classSubjects      ClassSubject[]
+  facultyAssignments FacultySubject[]
+  enrollments        Enrollment[]
+  attendanceSessions AttendanceSession[]
+  iaExams            IAExam[]
+  timetableSlots     TimetableSlot[]
+  resultSubjects     UniversityResultSubject[]
+  arrears            Arrear[]
+  skillGaps          SkillGap[]
+
+  @@index([departmentId, semester])
+  @@map("subjects")
+}
+
+model ClassSubject {
+  id        String   @id @default(cuid())
+  classId   String
+  subjectId String
+  createdAt DateTime @default(now())
+
+  class   Class   @relation(fields: [classId], references: [id], onDelete: Cascade)
+  subject Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@unique([classId, subjectId])
+  @@map("class_subjects")
+}
+
+model FacultySubject {
+  id        String   @id @default(cuid())
+  facultyId String
+  subjectId String
+  classId   String?
+  createdAt DateTime @default(now())
+
+  faculty Faculty @relation(fields: [facultyId], references: [id], onDelete: Cascade)
+  subject Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@unique([facultyId, subjectId, classId])
+  @@index([subjectId])
+  @@map("faculty_subjects")
+}
+
+model Room {
+  id        String   @id @default(cuid())
+  code      String   @unique // "R-201"
+  name      String
+  capacity  Int      @default(60)
+  roomType  RoomType @default(CLASSROOM)
+  building  String?
+  floor     Int?
+  hasProjector Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id])
+  laboratoryId String?
+  laboratory   Laboratory? @relation(fields: [laboratoryId], references: [id], onDelete: SetNull)
+
+  timetableSlots TimetableSlot[]
+
+  @@index([roomType])
+  @@map("rooms")
+}
+
+model Laboratory {
+  id        String   @id @default(cuid())
+  name      String
+  code      String   @unique
+  capacity  Int      @default(30)
+  equipment String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  rooms          Room[]
+  timetableSlots TimetableSlot[]
+
+  @@index([departmentId])
+  @@map("laboratories")
+}
+
+// ─────────────────────────────────────────────────────────────
+// People
+// ─────────────────────────────────────────────────────────────
+
+model Student {
+  id             String   @id @default(cuid())
+  registerNumber String   @unique // "21CS001"
+  rollNumber     String?
+  admissionYear  Int
+  semester       Int      @default(1)
+  gender         Gender   @default(UNSPECIFIED)
+  dateOfBirth    DateTime?
+  address        String?
+  city           String?
+  guardianName   String?
+  guardianPhone  String?
+  bloodGroup     String?
+  cgpa           Float?
+  batch          String? // "2021-2025"
+  academicStatus AccountStatus @default(ACTIVE)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  deletedAt      DateTime?
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  classId      String?
+  class        Class?     @relation(fields: [classId], references: [id], onDelete: SetNull)
+
+  enrollments       Enrollment[]
+  attendanceRecords AttendanceRecord[]
+  iaMarks           IAMark[]
+  studentResults    StudentResult[]
+  arrears           Arrear[]
+  resumes           Resume[]
+  jobDescriptions   JobDescription[]
+  matches           ResumeJobMatch[]
+  skillGaps         SkillGap[]
+
+  @@index([departmentId, classId])
+  @@index([academicStatus])
+  @@map("students")
+}
+
+model Faculty {
+  id             String   @id @default(cuid())
+  employeeId     String   @unique // "FAC-CSE-01"
+  designation    String   @default("Assistant Professor")
+  specialization String?
+  qualification  String?
+  experienceYears Int     @default(0)
+  gender         Gender   @default(UNSPECIFIED)
+  joinedOn       DateTime?
+  academicStatus AccountStatus @default(ACTIVE)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  deletedAt      DateTime?
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  headsDepartment  Department[]           @relation("DepartmentHead")
+  subjects         FacultySubject[]
+  availability     FacultyAvailability[]
+  attendanceSessions AttendanceSession[]
+  timetableSlots   TimetableSlot[]
+  iaExams          IAExam[]
+  universityResults UniversityResult[]     @relation("ResultProcessedBy")
+  timetables       Timetable[]             @relation("TimetableGeneratedBy")
+
+  @@index([departmentId])
+  @@map("faculty")
+}
+
+model Enrollment {
+  id             String   @id @default(cuid())
+  studentId      String
+  subjectId      String
+  classId        String?
+  academicYearId String?
+  semester       Int      @default(1)
+  status         String   @default("ENROLLED")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  student      Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  subject      Subject       @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  class        Class?        @relation(fields: [classId], references: [id], onDelete: SetNull)
+  academicYear AcademicYear? @relation(fields: [academicYearId], references: [id], onDelete: SetNull)
+
+  @@unique([studentId, subjectId, academicYearId])
+  @@index([subjectId, classId])
+  @@map("enrollments")
+}
+
+model FacultyAvailability {
+  id          String    @id @default(cuid())
+  facultyId   String
+  dayOfWeek   DayOfWeek
+  periodIndex Int
+  isAvailable Boolean   @default(true)
+  reason      String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  faculty Faculty @relation(fields: [facultyId], references: [id], onDelete: Cascade)
+
+  @@unique([facultyId, dayOfWeek, periodIndex])
+  @@map("faculty_availability")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Attendance
+// ─────────────────────────────────────────────────────────────
+
+model AttendanceSession {
+  id              String        @id @default(cuid())
+  date            DateTime      @db.Date
+  periodIndex     Int
+  startTime       String? // "09:00"
+  endTime         String? // "09:50"
+  durationMinutes Int           @default(50)
+  status          SessionStatus @default(COMPLETED)
+  topic           String?
+  notes           String?
+  totalStudents   Int           @default(0)
+  presentCount    Int           @default(0)
+  absentCount     Int           @default(0)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  deletedAt       DateTime?
+
+  subjectId String
+  subject   Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  classId   String
+  class     Class   @relation(fields: [classId], references: [id], onDelete: Cascade)
+  facultyId String?
+  faculty   Faculty? @relation(fields: [facultyId], references: [id], onDelete: SetNull)
+
+  records AttendanceRecord[]
+
+  @@unique([subjectId, classId, date, periodIndex])
+  @@index([classId, date])
+  @@index([date])
+  @@map("attendance_sessions")
+}
+
+model AttendanceRecord {
+  id        String           @id @default(cuid())
+  sessionId String
+  studentId String
+  status    AttendanceStatus @default(PRESENT)
+  remarks   String?
+  markedAt  DateTime         @default(now())
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  session AttendanceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  student Student           @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, studentId])
+  @@index([studentId, status])
+  @@map("attendance_records")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Internal assessment (academics)
+// ─────────────────────────────────────────────────────────────
+
+model IAExam {
+  id         String    @id @default(cuid())
+  name       String // "IA-1"
+  examNumber Int       @default(1)
+  examDate   DateTime  @db.Date
+  maxMarks   Int       @default(50)
+  weightage  Float     @default(1)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+
+  subjectId String
+  subject   Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  classId   String
+  class     Class   @relation(fields: [classId], references: [id], onDelete: Cascade)
+  facultyId String?
+  faculty   Faculty? @relation(fields: [facultyId], references: [id], onDelete: SetNull)
+
+  marks IAMark[]
+
+  @@unique([subjectId, classId, examNumber])
+  @@index([classId])
+  @@map("ia_exams")
+}
+
+model IAMark {
+  id        String   @id @default(cuid())
+  iaExamId  String
+  studentId String
+  marks     Int      @default(0)
+  isAbsent  Boolean  @default(false)
+  remarks   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  iaExam  IAExam  @relation(fields: [iaExamId], references: [id], onDelete: Cascade)
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([iaExamId, studentId])
+  @@index([studentId])
+  @@map("ia_marks")
+}
+
+// ─────────────────────────────────────────────────────────────
+// University results
+// ─────────────────────────────────────────────────────────────
+
+model UniversityResult {
+  id            String   @id @default(cuid())
+  name          String // "Semester 5 · November 2025"
+  semester      Int
+  declaredOn    DateTime @db.Date
+  status        String   @default("COMPLETED") // PROCESSING | COMPLETED | FAILED
+  passPercentage Float?
+  totalStudents Int      @default(0)
+  passedStudents Int     @default(0)
+  failedStudents Int     @default(0)
+  arrearCount   Int      @default(0)
+  summary       Json?
+  error         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  deletedAt     DateTime?
+
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id])
+  academicYearId String?
+  academicYear  AcademicYear? @relation(fields: [academicYearId], references: [id])
+  fileAssetId  String?       @unique
+  fileAsset    FileAsset?    @relation("ResultSheet", fields: [fileAssetId], references: [id], onDelete: SetNull)
+  processedById String?
+  processedBy  Faculty?      @relation("ResultProcessedBy", fields: [processedById], references: [id], onDelete: SetNull)
+
+  studentResults StudentResult[]
+
+  @@index([semester])
+  @@map("university_results")
+}
+
+model StudentResult {
+  id         String              @id @default(cuid())
+  semester   Int
+  gpa        Float?
+  aggregate  Float?
+  arrearsCount Int               @default(0)
+  status     StudentResultStatus @default(PENDING)
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+
+  universityResultId String
+  universityResult   UniversityResult @relation(fields: [universityResultId], references: [id], onDelete: Cascade)
+  studentId          String
+  student            Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  subjects UniversityResultSubject[]
+
+  @@unique([universityResultId, studentId])
+  @@index([studentId, semester])
+  @@map("student_results")
+}
+
+model UniversityResultSubject {
+  id       String       @id @default(cuid())
+  grade    String?
+  marks    Int?
+  credits  Float?
+  status   ResultStatus @default(PASS)
+  attempts Int          @default(1)
+
+  studentResultId String
+  studentResult   StudentResult @relation(fields: [studentResultId], references: [id], onDelete: Cascade)
+  subjectId       String
+  subject         Subject       @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@unique([studentResultId, subjectId])
+  @@index([subjectId, status])
+  @@map("university_result_subjects")
+}
+
+model Arrear {
+  id           String       @id @default(cuid())
+  semester     Int
+  status       ArrearStatus @default(OPEN)
+  firstAttempt DateTime     @db.Date
+  clearedAt    DateTime?    @db.Date
+  attempts     Int          @default(1)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  studentId String
+  student   Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  subjectId String
+  subject   Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, subjectId, semester])
+  @@index([status])
+  @@map("arrears")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Timetable & scheduling
+// ─────────────────────────────────────────────────────────────
+
+model Timetable {
+  id          String          @id @default(cuid())
+  name        String
+  version     Int             @default(1)
+  status      TimetableStatus @default(DRAFT)
+  generatedAt DateTime        @default(now())
+  notes       String?
+  conflicts   Json?
+  metrics     Json?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  deletedAt   DateTime?
+
+  classId        String
+  class          Class        @relation(fields: [classId], references: [id], onDelete: Cascade)
+  academicYearId String
+  academicYear   AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  generatedById  String?
+  generatedBy    Faculty?     @relation("TimetableGeneratedBy", fields: [generatedById], references: [id], onDelete: SetNull)
+
+  slots TimetableSlot[]
+
+  @@unique([classId, academicYearId, version])
+  @@index([academicYearId, status])
+  @@map("timetables")
+}
+
+model TimetableSlot {
+  id          String    @id @default(cuid())
+  dayOfWeek   DayOfWeek
+  periodIndex Int
+  startTime   String // "09:00"
+  endTime     String // "09:50"
+  isBreak     Boolean   @default(false)
+  breakLabel  String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  timetableId String
+  timetable   Timetable @relation(fields: [timetableId], references: [id], onDelete: Cascade)
+  classId     String
+  class       Class     @relation(fields: [classId], references: [id], onDelete: Cascade)
+  subjectId   String?
+  subject     Subject?  @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+  facultyId   String?
+  faculty     Faculty?  @relation(fields: [facultyId], references: [id], onDelete: SetNull)
+  roomId      String?
+  room        Room?     @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  laboratoryId String?
+  laboratory  Laboratory? @relation(fields: [laboratoryId], references: [id], onDelete: SetNull)
+
+  @@unique([timetableId, dayOfWeek, periodIndex])
+  @@index([classId, dayOfWeek, periodIndex])
+  @@index([facultyId, dayOfWeek, periodIndex])
+  @@index([roomId, dayOfWeek, periodIndex])
+  @@map("timetable_slots")
+}
+
+model SchedulingConstraint {
+  id          String             @id @default(cuid())
+  name        String
+  type        ConstraintType
+  severity    ConstraintSeverity @default(HARD)
+  weight      Int                @default(1)
+  isEnabled   Boolean            @default(true)
+  description String?
+  config      Json?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@unique([name])
+  @@map("scheduling_constraints")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Career: resumes, jobs, AI matching
+// ─────────────────────────────────────────────────────────────
+
+model Skill {
+  id        String        @id @default(cuid())
+  name      String        @unique
+  category  SkillCategory @default(TOOL)
+  aliases   String[]      @default([])
+  demand    Int           @default(1) // relative market weight used for scoring
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  resumeSkills ResumeSkill[]
+  skillGaps    SkillGap[]
+
+  @@index([category])
+  @@map("skills")
+}
+
+model Resume {
+  id         String   @id @default(cuid())
+  title      String   @default("My Resume")
+  content    String // extracted plain text
+  version    Int      @default(1)
+  isPrimary  Boolean  @default(false)
+  wordCount  Int      @default(0)
+  parsedData Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  deletedAt  DateTime?
+
+  studentId   String
+  student     Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  fileAssetId String?     @unique
+  fileAsset   FileAsset?  @relation("ResumeFile", fields: [fileAssetId], references: [id], onDelete: SetNull)
+
+  skills   ResumeSkill[]
+  analyses ResumeAnalysis[]
+  matches  ResumeJobMatch[]
+
+  @@index([studentId])
+  @@map("resumes")
+}
+
+model ResumeSkill {
+  id         String  @id @default(cuid())
+  resumeId   String
+  skillId    String
+  evidence   String? // snippet from the resume
+  mentions   Int     @default(1)
+
+  resume Resume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  skill  Skill  @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([resumeId, skillId])
+  @@map("resume_skills")
+}
+
+model JobDescription {
+  id             String   @id @default(cuid())
+  title          String
+  company        String?
+  location       String?
+  jobType        JobType  @default(FULL_TIME)
+  description    String // full text
+  sourceUrl      String?
+  minExperience  Float    @default(0)
+  parsedData     Json?
+  wordCount      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  deletedAt      DateTime?
+
+  studentId String?
+  student   Student? @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  fileAssetId String?    @unique
+  fileAsset   FileAsset? @relation("JobFile", fields: [fileAssetId], references: [id], onDelete: SetNull)
+
+  analyses JobAnalysis[]
+  matches  ResumeJobMatch[]
+
+  @@index([title])
+  @@map("job_descriptions")
+}
+
+model ResumeAnalysis {
+  id          String           @id @default(cuid())
+  provider    AnalysisProvider @default(MOCK)
+  model       String?
+  summary     Json // { sections, education, experience, skills[], strengths[], weaknesses[] }
+  rawResponse Json?
+  durationMs  Int              @default(0)
+  createdAt   DateTime         @default(now())
+
+  resumeId String
+  resume   Resume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  @@index([resumeId])
+  @@map("resume_analyses")
+}
+
+model JobAnalysis {
+  id          String           @id @default(cuid())
+  provider    AnalysisProvider @default(MOCK)
+  model       String?
+  summary     Json // { role, technicalSkills[], tools[], languages[], frameworks[], databases[], experience, education, otherRequirements[] }
+  rawResponse Json?
+  durationMs  Int              @default(0)
+  createdAt   DateTime         @default(now())
+
+  jobDescriptionId String
+  jobDescription   JobDescription @relation(fields: [jobDescriptionId], references: [id], onDelete: Cascade)
+
+  @@index([jobDescriptionId])
+  @@map("job_analyses")
+}
+
+model ResumeJobMatch {
+  id          String           @id @default(cuid())
+  score       Float // 0-100 alignment score
+  verdict     MatchVerdict     @default(MODERATE)
+  provider    AnalysisProvider @default(MOCK)
+  model       String?
+  matchedSkills Json
+  missingSkills Json
+  partialSkills Json?
+  resumeEvidence Json?
+  gapAnalysis   Json?
+  recommendations Json?
+  breakdown   Json?
+  disclaimer  String?
+  durationMs  Int              @default(0)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  deletedAt   DateTime?
+
+  resumeId         String
+  resume           Resume         @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  jobDescriptionId String
+  jobDescription   JobDescription @relation(fields: [jobDescriptionId], references: [id], onDelete: Cascade)
+  studentId        String
+  student          Student        @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  skillGaps SkillGap[]
+
+  @@index([studentId, createdAt])
+  @@map("resume_job_matches")
+}
+
+model SkillGap {
+  id          String   @id @default(cuid())
+  skillName   String
+  severity    String   @default("MEDIUM") // LOW | MEDIUM | HIGH | CRITICAL
+  category    String?
+  recommendation String?
+  status      String   @default("OPEN") // OPEN | IN_PROGRESS | CLOSED
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  matchId   String
+  match     ResumeJobMatch @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  studentId String
+  student   Student        @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  skillId   String?
+  skill     Skill?         @relation(fields: [skillId], references: [id], onDelete: SetNull)
+  subjectId String?
+  subject   Subject?       @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+
+  @@index([studentId, status])
+  @@index([skillId])
+  @@map("skill_gaps")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Files, notifications, audit, settings
+// ─────────────────────────────────────────────────────────────
+
+model FileAsset {
+  id           String   @id @default(cuid())
+  filename     String // stored name
+  originalName String
+  mimeType     String
+  sizeBytes    Int
+  storageKey   String   @unique
+  storageDriver String  @default("local")
+  checksum     String?
+  kind         FileKind @default(OTHER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  deletedAt    DateTime?
+
+  ownerId String?
+  owner   User?   @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+
+  resume          Resume?          @relation("ResumeFile")
+  jobDescription  JobDescription?  @relation("JobFile")
+  universityResult UniversityResult? @relation("ResultSheet")
+
+  @@index([ownerId, kind])
+  @@map("file_assets")
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  type      NotificationType @default(SYSTEM)
+  title     String
+  message   String
+  link      String?
+  isRead    Boolean          @default(false)
+  readAt    DateTime?
+  metadata  Json?
+  createdAt DateTime         @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead, createdAt])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id            String   @id @default(cuid())
+  action        String // "settings.update"
+  resourceType  String // "SystemSetting"
+  resourceId    String?
+  description   String
+  previousValue Json?
+  newValue      Json?
+  ipAddress     String?
+  userAgent     String?
+  createdAt     DateTime @default(now())
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([resourceType, resourceId])
+  @@index([userId])
+  @@map("audit_logs")
+}
+
+model SystemSetting {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       Json
+  category    String   @default("general")
+  description String?
+  isPublic    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  updatedById String?
+  updatedBy   User?    @relation("SettingUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([category])
+  @@map("system_settings")
+}
